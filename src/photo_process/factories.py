@@ -1,11 +1,11 @@
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
 import exifread
-from photo_process.models import RawPhoto
+from photo_process.models import RawPhoto, RawPhotoCollection
 from loguru import logger
 import hashlib
-
 
 
 class RawPhotoFactory:
@@ -42,6 +42,15 @@ class RawPhotoFactory:
                 pass
         raise ValueError(f"Unable to parse EXIF DateTimeOriginal: {dt_raw}")
 
+    @staticmethod
+    def _extract_thumbnail(tags):
+        thumb = tags.get("JPEGThumbnail")
+        if thumb is None:
+            return None
+        if hasattr(thumb, "values"):
+            return thumb.values  # raw bytes
+        return thumb
+
     @classmethod
     def from_file(cls, filepath: str | Path) -> RawPhoto:
         """Build a RawPhoto from the EXIF tags of a file."""
@@ -55,6 +64,7 @@ class RawPhotoFactory:
         logger.debug(f"Camera model tag: {exif.get('Image Model')}")
         camera_id = exif.get("EXIF BodySerialNumber")
         thumb_sig = cls._thumbnail_signature(exif)
+        thumbnail_data = cls._extract_thumbnail(exif)
 
         if camera_model_tag is None:
             raise ValueError("EXIF field 'Image Model' not found")
@@ -78,4 +88,42 @@ class RawPhotoFactory:
             thumbnail_signature=thumb_sig if thumb_sig else "none",
             exif={k: str(v) for k, v in exif.items()},
             source_path=path,
+            thumbnail_data=thumbnail_data,
         )
+
+
+class RawPhotoCollectionFactory:
+    @classmethod
+    def from_files(cls, filepaths: list[str | Path]) -> RawPhotoCollection:
+        photos = []
+        for filepath in filepaths:
+            try:
+                photo = RawPhotoFactory.from_file(filepath)
+                photos.append(photo)
+            except Exception as e:
+                logger.error(f"Error processing file {filepath}: {e}")
+        return RawPhotoCollection(photos=photos)
+
+    @classmethod
+    def from_folder(
+        cls, folderpath: str | Path, extensions: set[str] = None
+    ) -> RawPhotoCollection:
+        """Scan a folder for RAW photo files and build a RawPhotoCollection."""
+        folder = Path(folderpath)
+        if extensions is None:
+            extensions = {
+                "cr2",
+                "cr3",
+                "nef",
+                "arw",
+                "orf",
+                "rw2",
+            }  # common RAW formats
+
+        filepaths = [
+            p
+            for p in folder.rglob("*")
+            if p.is_file() and p.suffix.lstrip(".").lower() in extensions
+        ]
+        logger.info(f"Found {len(filepaths)} RAW files in {folderpath}")
+        return cls.from_files(filepaths)

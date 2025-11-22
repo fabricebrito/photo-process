@@ -32,6 +32,9 @@ dependencies = [
   "loguru",
 ]
 
+[project.scripts]
+photo-cli = "photo_process.cli:organize"
+
 [project.urls]
 Documentation = "https://github.com/U.N. Owen/photo-process#readme"
 Issues = "https://github.com/U.N. Owen/photo-process/issues"

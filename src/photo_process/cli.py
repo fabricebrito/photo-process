@@ -1,31 +1,60 @@
 import click
 from pathlib import Path
-from photo_process.factory import RawPhotoFactory
+import shutil
+from loguru import logger
+
+from photo_process.factories import RawPhotoCollectionFactory
 
 
-@click.group()
-def cli():
-    """CLI for reading and managing Canon RAW photos."""
-    pass
-
-
-@cli.command()
-@click.argument("path", type=click.Path(exists=True, path_type=Path))
-def info(path):
+@click.command()
+@click.argument("source", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument("target", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="Show operations without copying files.")
+def organize(source: Path, target: Path, dry_run: bool):
     """
-    Show EXIF-based info for a RAW photo.
+    Organize RAW photos from SOURCE into a date-based structure under TARGET.
     """
-    try:
-        photo = RawPhotoFactory.from_file(path)
-    except Exception as e:
-        click.echo(f"Error: {e}")
-        raise click.Abort()
 
-    click.echo(f"Camera:         {photo.camera_model.value}")
-    click.echo(f"Prefix:         {photo.camera_prefix}")
-    #click.echo(f"Camera ID:      {photo.camera_id}")
-    click.echo(f"Shooting date:  {photo.shooting_datetime.isoformat()}")
+    logger.info(f"Scanning source folder: {source}")
+
+    collection = RawPhotoCollectionFactory.from_folder(source)
+    logger.info(f"Found {len(collection)} images")
+
+    for photo in collection:
+        logger.info(
+            f"Processing: RAW={photo.source_path.name} "
+            f"JPEG={'YES' if photo.has_jpeg else 'NO'}"
+        )
+
+        # Compute RAW target path
+        dest_dir = target / photo.target_folder
+        dest_file = dest_dir / photo.filename
+
+        logger.debug(f"RAW → {dest_file}")
+
+        if not dry_run:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy(photo.source_path, dest_file)
+
+        # If JPEG exists, copy that too
+        if photo.has_jpeg:
+            jpeg_dest = dest_dir / photo.jpeg_filename
+            logger.debug(f"JPEG → {jpeg_dest}")
+
+            if not dry_run:
+                shutil.copy(photo.jpeg_path, jpeg_dest)
+
+        # Save embedded thumbnail
+        if photo.thumbnail_data:
+            logger.debug(
+                f"Thumbnail → {photo.target_folder / photo.thumbnail_filename}"
+            )
+
+            if not dry_run:
+                photo.save_thumbnail()
+
+    logger.info("Done.")
 
 
 def main():
-    cli()
+    organize()
