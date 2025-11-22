@@ -1,0 +1,6 @@
+dist
+__pycache__/
+exif.dump
+2025
+.DS_Store
+t.ipynb

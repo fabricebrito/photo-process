@@ -24,7 +24,13 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+  "pydantic",
+  "ipykernel",
+  "exifread",
+  "click",
+  "loguru",
+]
 
 [project.urls]
 Documentation = "https://github.com/U.N. Owen/photo-process#readme"
