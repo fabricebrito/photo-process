@@ -6,7 +6,12 @@ import exifread
 from photo_process.models import RawPhoto, RawPhotoCollection
 from loguru import logger
 import hashlib
+import exiftool
 
+def hash_raw_chunk(path: Path, n=256*1024, length=12) -> str:
+    with open(path, "rb") as f:
+        chunk = f.read(n)
+    return hashlib.sha1(chunk).hexdigest()[:length].upper()
 
 class RawPhotoFactory:
     DATETIME_FORMATS = (
@@ -16,7 +21,7 @@ class RawPhotoFactory:
 
     @staticmethod
     def _thumbnail_signature(tags, length=12):
-        thumb = tags.get("JPEGThumbnail")
+        thumb = tags.get("EXIF:JPEGThumbnail")
         if not thumb:
             return None  # or raise
         data = thumb
@@ -26,11 +31,10 @@ class RawPhotoFactory:
         return hashlib.sha1(data).hexdigest()[:length].upper()
 
     @staticmethod
-    def _extract_exif(path: Path) -> Dict[str, Any]:
-        """Extract EXIF tags using exifread."""
-        with open(path, "rb") as f:
-            tags = exifread.process_file(f, details=False)  # `details=False` → faster
-        return tags
+    def _extract_exif(path: Path) -> dict:
+        with exiftool.ExifToolHelper() as et:
+            data = et.get_metadata(str(path))
+        return data[0]
 
     @staticmethod
     def _parse_datetime(dt_raw: str) -> datetime:
@@ -43,13 +47,9 @@ class RawPhotoFactory:
         raise ValueError(f"Unable to parse EXIF DateTimeOriginal: {dt_raw}")
 
     @staticmethod
-    def _extract_thumbnail(tags):
-        thumb = tags.get("JPEGThumbnail")
-        if thumb is None:
-            return None
-        if hasattr(thumb, "values"):
-            return thumb.values  # raw bytes
-        return thumb
+    def _extract_thumbnail(path: Path) -> bytes | None:
+        
+        return None
 
     @classmethod
     def from_file(cls, filepath: str | Path) -> RawPhoto:
@@ -58,19 +58,21 @@ class RawPhotoFactory:
         exif = cls._extract_exif(path)
 
         # exifread uses keys like "Image Model", "EXIF DateTimeOriginal"
-        camera_model_tag = exif.get("Image Model")
-        dt_original_tag = exif.get("EXIF DateTimeOriginal")
-        logger.debug(f"EXIF tags extracted: {list(exif.keys())}")
-        logger.debug(f"Camera model tag: {exif.get('Image Model')}")
-        camera_id = exif.get("EXIF BodySerialNumber")
-        thumb_sig = cls._thumbnail_signature(exif)
-        thumbnail_data = cls._extract_thumbnail(exif)
+        camera_model_tag = exif.get("EXIF:Model")
+        
+        logger.debug(f"Camera model tag: {camera_model_tag}")
+        # need to check if "Date/Time Original" is used instead
+        dt_original_tag = exif.get("EXIF:DateTimeOriginal")
+        
+        logger.debug(f"Camera model tag: {exif.get('EXIF:Model')}")
+        camera_id = exif.get("EXIF:SerialNumber")
+        hash_chunk = hash_raw_chunk(path)
 
         if camera_model_tag is None:
-            raise ValueError("EXIF field 'Image Model' not found")
+            raise ValueError("EXIF field 'EXIF:Model' not found")
 
         if dt_original_tag is None:
-            raise ValueError("EXIF field 'EXIF DateTimeOriginal' not found")
+            raise ValueError("EXIF field 'EXIF:DateTimeOriginal' not found")
 
         # Convert EXIF tag values to strings
         camera_model = str(camera_model_tag)
@@ -85,10 +87,10 @@ class RawPhotoFactory:
             shooting_datetime=shooting_dt,
             extension=extension,
             camera_id=str(camera_id) if camera_id else "unknown",
-            thumbnail_signature=thumb_sig if thumb_sig else "none",
+            hash_chunk=hash_chunk if hash_chunk else "none",
             exif={k: str(v) for k, v in exif.items()},
             source_path=path,
-            thumbnail_data=thumbnail_data,
+
         )
 
 
@@ -106,24 +108,25 @@ class RawPhotoCollectionFactory:
 
     @classmethod
     def from_folder(
-        cls, folderpath: str | Path, extensions: set[str] = None
+        cls,
+        folderpath: str | Path,
+        extensions: set[str] = None,
+        recursive: bool = True
     ) -> RawPhotoCollection:
-        """Scan a folder for RAW photo files and build a RawPhotoCollection."""
+
         folder = Path(folderpath)
         if extensions is None:
-            extensions = {
-                "cr2",
-                "cr3",
-                "nef",
-                "arw",
-                "orf",
-                "rw2",
-            }  # common RAW formats
+            extensions = {"cr2", "cr3", "nef", "arw", "orf", "rw2", "raf", "tiff"}
+
+        if recursive:
+            iterator = folder.rglob("*")
+        else:
+            iterator = folder.glob("*")  # non-recursive
 
         filepaths = [
-            p
-            for p in folder.rglob("*")
+            p for p in iterator
             if p.is_file() and p.suffix.lstrip(".").lower() in extensions
         ]
+
         logger.info(f"Found {len(filepaths)} RAW files in {folderpath}")
         return cls.from_files(filepaths)

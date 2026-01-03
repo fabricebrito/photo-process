@@ -3,43 +3,38 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List
 from pathlib import Path
 from enum import Enum
-from loguru import logger
 
 
-class CanonCamera(str, Enum):
+class CameraModel(str, Enum):
+    EOS_50D = "Canon EOS 50D"
     EOS_5D_MARK_IV = "Canon EOS 5D Mark IV"
     EOS_6D_MARK_II = "Canon EOS 6D Mark II"
     EOS_7D_MARK_II = "Canon EOS 7D Mark II"
+    FUJIFILM_X_T5 = "X-T5"
+    FUJIFILM_X_E2 = "X-E2"
 
     @property
     def prefix(self) -> str:
         mapping = {
-            CanonCamera.EOS_5D_MARK_IV: "5D4",
-            CanonCamera.EOS_6D_MARK_II: "6D2",
-            CanonCamera.EOS_7D_MARK_II: "7D2",
+            CameraModel.EOS_50D: "50D",
+            CameraModel.EOS_5D_MARK_IV: "5D4",
+            CameraModel.EOS_6D_MARK_II: "6D2",
+            CameraModel.EOS_7D_MARK_II: "7D2",
+            CameraModel.FUJIFILM_X_T5: "XT5",
+            CameraModel.FUJIFILM_X_E2: "XE2",
         }
         return mapping[self]
 
 
 class RawPhoto(BaseModel):
-    camera_model: CanonCamera = Field(..., description="Exact EXIF camera model")
+    camera_model: CameraModel = Field(..., description="Exact EXIF camera model")
     camera_id: str = Field(..., description="Camera serial number")
     shooting_datetime: datetime = Field(..., description="EXIF DateTimeOriginal")
     extension: str = Field(..., description="File extension (e.g. cr2, cr3, jpg)")
     exif: Dict[str, Any] = Field(default_factory=dict, description="Raw EXIF tags")
-    thumbnail_signature: str = Field(..., description="Short JPEG thumbnail hash")
+    hash_chunk: str = Field(..., description="Short hash chunk")
     source_path: Path = Field(..., description="Original file path")
-    thumbnail_data: bytes | None = None
-
-    def save_thumbnail(self) -> Path | None:
-        # if self.thumbnail_data is None:
-        #    return None
-        target = self.target_folder / self.thumbnail_filename
-        logger.debug(f"Saving thumbnail to {target}")
-        with open(target.as_posix(), "wb") as target_file:
-            target_file.write(self.thumbnail_data)
-        return target
-
+   
     @property
     def jpeg_path(self) -> Path | None:
         """Return the path of the JPEG file next to the RAW file, or None if missing."""
@@ -85,7 +80,7 @@ class RawPhoto(BaseModel):
     @property
     def photo_id(self) -> str:
         ts = self.shooting_datetime.strftime("%Y%m%dT%H%M%S")
-        return f"{self.camera_prefix}_{ts}_{self.camera_id}_{self.thumbnail_signature}"
+        return f"{self.camera_prefix}_{ts}_{self.camera_id}_{self.hash_chunk}"
 
     @property
     def filename(self) -> str:

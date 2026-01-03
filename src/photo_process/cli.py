@@ -44,14 +44,6 @@ def organize(source: Path, target: Path, dry_run: bool):
             if not dry_run:
                 shutil.copy(photo.jpeg_path, jpeg_dest)
 
-        # Save embedded thumbnail
-        if photo.thumbnail_data:
-            logger.debug(
-                f"Thumbnail → {photo.target_folder / photo.thumbnail_filename}"
-            )
-
-            if not dry_run:
-                photo.save_thumbnail()
 
     logger.info("Done.")
 
